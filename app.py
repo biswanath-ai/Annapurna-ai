@@ -29,6 +29,21 @@ if "donations" not in st.session_state:
 if "rescued" not in st.session_state:
     st.session_state.rescued = 1240
 
+def claim_item(idx):
+    st.session_state.donations[idx]["status"] = "Claimed"
+    st.session_state.rescued += int(st.session_state.donations[idx].get("portions", 0))
+
+def render_card(i, it):
+    with st.container(border=True):
+        a, b = st.columns(list((2.5, 1)))
+        a.markdown(f"### 🍛 {it.get('dish')} ({it.get('portions')} Portions)")
+        a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
+        if it.get("status") == "Available":
+            b.button("🚚 Claim", key=f"c_{i}", on_click=claim_item, args=(i,), use_container_width=True)
+        else:
+            b.success("✅ Claimed")
+            b.info(f"OTP: {it.get('otp')}")
+
 with st.sidebar:
     st.header("🌟 Live Hub Status")
     st.success("✅ Vision AI Engine Active")
@@ -135,14 +150,3 @@ with t3:
     mc, fc = st.columns(list((1, 1.4)))
     with mc:
         with st.container(border=True):
-            st.map(pd.DataFrame({"lat": list((19.1982, 19.2055, 19.2140)), "lon": list((84.7458, 84.7580, 84.7720))}), zoom=12)
-            st.caption("📍 NIST Campus & Partner NGOs in Berhampur (< 5 km)")
-    with fc:
-        for i, it in enumerate(st.session_state.donations):
-            with st.container(border=True):
-                a, b = st.columns(list((2.5, 1)))
-                a.markdown(f"### 🍛 {it.get('dish')} ({it.get('portions')} Portions)")
-                a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
-                if it.get("status") == "Available":
-                    clicked = b.button("🚚 Claim", key=f"c_{i}", use_container_width=True)
-                    if clicked:
