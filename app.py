@@ -23,8 +23,12 @@ st.markdown("**Team RudraGrid** | *Preventing overcooking before meals & rescuin
 
 with st.sidebar:
     st.header("⚙️ AI Configuration")
-    api_key = st.text_input("Enter Gemini API Key", type="password", help="Get your free key from Google AI Studio")
-    st.info("💡 **Demo Tip:** Paste your Gemini API key above to enable live Vision AI tray scanning.")
+    default_key = st.secrets.get("GEMINI_API_KEY", "")
+    api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Loaded automatically from Streamlit Secrets")
+    if api_key:
+        st.success("✅ AI Engine Connected & Ready")
+    else:
+        st.info("💡 Paste your Gemini API key above to enable live Vision AI tray scanning.")
 
 tab1, tab2, tab3 = st.tabs(list((
     "📊 1. AI Kitchen Prep Advisor",
@@ -76,7 +80,7 @@ with tab2:
 
         if st.button("🔍 Scan Tray & Alert NGOs", type="primary"):
             if not api_key:
-                st.warning("⚠️ Please paste your Gemini API Key in the left sidebar first!")
+                st.warning("⚠️ Please configure your Gemini API Key first!")
             else:
                 with st.spinner("Analyzing food tray with Gemini Vision AI..."):
                     try:
@@ -106,7 +110,9 @@ with tab2:
                         if "error" in data:
                             st.error(f"API Error: {data.get('error').get('message')}")
                         else:
-                            raw_text = data.get("candidates")[0].get("content").get("parts")[0].get("text")
+                            first_cand = next(iter(data.get("candidates", ())))
+                            first_part = next(iter(first_cand.get("content", {}).get("parts", ())))
+                            raw_text = first_part.get("text", "")
                             raw_text = raw_text.strip().removeprefix("```json").removesuffix("```").strip()
                             result = json.loads(raw_text)
 
