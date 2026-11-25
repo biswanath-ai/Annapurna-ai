@@ -14,8 +14,7 @@ st.markdown("""<style>
 div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.85rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
 div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 10px; background: #ffffff; padding: 8px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); flex-wrap: wrap;}
-.stTabs [data-baseweb="tab"] {background-color: #f1f5f9; border-radius: 10px; padding: 10px 18px; border: 1px solid #e2e8f0; transition: all 0.2s ease;}
-.stTabs [data-baseweb="tab"]:hover {background-color: #e2e8f0;}
+.stTabs [data-baseweb="tab"] {background-color: #f1f5f9; border-radius: 10px; padding: 10px 18px; border: 1px solid #e2e8f0;}
 .stTabs [aria-selected="true"] {background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important; border: none !important; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);}
 .stTabs [aria-selected="true"] p {color: #ffffff !important; font-weight: 700 !important;}
 .stTabs [data-baseweb="tab-highlight"] {display: none !important;}
@@ -111,7 +110,7 @@ with t2:
                             res_data = None
                         if not res_data:
                             nm = up.name.lower()
-                            clean_nm = re.sub(r"[^a-zA-Z ]", " ", nm.rsplit(".", 1)[0]).strip().title()
+                            clean_nm = re.sub(r"[^a-zA-Z ]", " ", nm.rsplit(".", 1)).strip().title()
                             dish = clean_nm if (len(clean_nm) > 3 and not clean_nm.isdigit() and not clean_nm.startswith("Img")) else "Freshly Prepared Campus Meal"
                             res_data = {"dish": dish, "portions": 24, "shelf_life": "3 Hours"}
                         d_name = str(res_data.get("dish", "Cooked Meal"))
@@ -145,4 +144,5 @@ with t3:
                 a.markdown(f"### 🍛 {it.get('dish')} ({it.get('portions')} Portions)")
                 a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
                 if it.get("status") == "Available":
-                    if b.button("🚚 Claim", key=f"c_{i}", use_container_width=True):
+                    clicked = b.button("🚚 Claim", key=f"c_{i}", use_container_width=True)
+                    if clicked:
