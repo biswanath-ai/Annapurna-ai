@@ -88,7 +88,9 @@ with tab2:
                         image.save(buffered, format="JPEG")
                         img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-                        url = f"https://googleapis.com{api_key.strip()}"
+                        base = "https://googleapis.com"
+                        path = "/v1beta/models/gemini-2.5-flash:generateContent"
+                        url = base + path
                         prompt = (
                             "Analyze this food image for a surplus food donation app. "
                             "Identify the dish name, estimate how many human meal portions are visible (as an integer), "
@@ -105,7 +107,7 @@ with tab2:
                                 },
                             ))
                         }
-                        res = requests.post(url, json=payload, timeout=30)
+                        res = requests.post(url, params={"key": api_key.strip()}, json=payload, timeout=30)
                         data = res.json()
                         if "error" in data:
                             st.error(f"API Error: {data.get('error').get('message')}")
