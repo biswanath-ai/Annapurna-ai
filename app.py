@@ -6,15 +6,15 @@ import json
 st.set_page_config(page_title="AnnapurnaAI", page_icon="🍲", layout="wide")
 
 if "donations" not in st.session_state:
-    st.session_state.donations = [
+    st.session_state.donations = list((
         {
             "dish": "Steamed Rice & Dal Tadka",
             "portions": 35,
             "shelf_life": "3 Hours",
             "location": "NIST Hostel Mess 1 (1.2 km away)",
             "status": "Available"
-        }
-    ]
+        },
+    ))
 
 st.title("🍲 AnnapurnaAI: Smart Food Waste Prevention & Redistribution")
 st.markdown("**Team RudraGrid** | *Preventing overcooking before meals & rescuing surplus food after service.*")
@@ -24,11 +24,11 @@ with st.sidebar:
     api_key = st.text_input("Enter Gemini API Key", type="password", help="Get your free key from Google AI Studio")
     st.info("💡 **Demo Tip:** Paste your Gemini API key above to enable live Vision AI tray scanning.")
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3 = st.tabs(list((
     "📊 1. AI Kitchen Prep Advisor",
     "📸 2. Vision AI Surplus Scanner",
     "🤝 3. Live NGO Pickup Portal"
-])
+)))
 
 # TAB 1: DEMAND FORECASTER
 with tab1:
@@ -37,13 +37,13 @@ with tab1:
     
     col1, col2 = st.columns(2)
     with col1:
-        meal_type = st.selectbox("Select Meal", ["Lunch", "Dinner", "Breakfast"])
-        day_type = st.selectbox("Campus Schedule", [
+        meal_type = st.selectbox("Select Meal", list(("Lunch", "Dinner", "Breakfast")))
+        day_type = st.selectbox("Campus Schedule", list((
             "Regular Working Day",
             "Weekend / Sunday",
             "College Fest / Event (Sankalp)",
             "Exam Week / Holiday"
-        ])
+        )))
         registered_students = st.number_input("Total Hostel Students Registered", min_value=50, max_value=2000, value=450)
 
     with col2:
@@ -53,7 +53,7 @@ with tab1:
             "College Fest / Event (Sankalp)": 0.65,
             "Exam Week / Holiday": 0.70
         }
-        predicted_headcount = int(registered_students * factors[day_type])
+        predicted_headcount = int(registered_students * factors.get(day_type, 0.9))
         saved_meals = registered_students - predicted_headcount
 
         st.metric("Recommended Meals to Cook", f"{predicted_headcount} Plates", f"-{saved_meals} plates saved from waste")
@@ -66,7 +66,7 @@ with tab2:
     st.subheader("5-Second Leftover Tray Scanner")
     st.write("Upload a photo of leftover food trays. Vision AI detects the dish, estimates portions, and sets a freshness timer.")
 
-    uploaded_file = st.file_uploader("Upload Leftover Food Tray Photo", type=["jpg", "jpeg", "png"])
+    uploaded_file = st.file_uploader("Upload Leftover Food Tray Photo", type=list(("jpg", "jpeg", "png")))
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
@@ -87,7 +87,7 @@ with tab2:
                         )
                         response = client.models.generate_content(
                             model="gemini-2.5-flash",
-                            contents=
+                            contents=list((image, prompt))
                         )
                         raw_text = response.text.strip().removeprefix("```json").removesuffix("```").strip()
                         result = json.loads(raw_text)
@@ -115,14 +115,14 @@ with tab3:
 
     for idx, item in enumerate(st.session_state.donations):
         with st.container(border=True):
-            col_a, col_b = st.columns([3, 1])
+            col_a, col_b = st.columns(list((3, 1)))
             with col_a:
-                st.markdown(f"### 🍛 {item['dish']} ({item['portions']} Portions)")
-                st.write(f"📍 **Pickup:** {item['location']} | ⏳ **Expires in:** {item['shelf_life']}")
+                st.markdown(f"### 🍛 {item.get('dish')} ({item.get('portions')} Portions)")
+                st.write(f"📍 **Pickup:** {item.get('location')} | ⏳ **Expires in:** {item.get('shelf_life')}")
             with col_b:
-                if item["status"] == "Available":
+                if item.get("status") == "Available":
                     if st.button("🚚 Claim Pickup", key=f"claim_{idx}"):
                         st.session_state.donations[idx]["status"] = "Claimed by NGO ✅"
                         st.rerun()
                 else:
-                    st.success(item["status"])
+                    st.success(item.get("status"))
