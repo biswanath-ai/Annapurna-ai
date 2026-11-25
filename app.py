@@ -11,7 +11,8 @@ st.markdown("""<style>
 .hero {background: linear-gradient(135deg, #ea580c 0%, #f59e0b 45%, #10b981 100%); padding: 1.8rem 2rem; border-radius: 16px; color: #ffffff; margin-bottom: 1.2rem; box-shadow: 0 8px 24px rgba(234, 88, 12, 0.22);}
 .hero h1 {margin: 0; color: #ffffff; font-size: 2.3rem; font-weight: 800;}
 .hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: 1.05rem; font-weight: 500;}
-div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 1rem 1.2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
+div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.9rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
+div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
 .stTabs [data-baseweb="tab-list"] {gap: 8px; background: #ffffff; padding: 6px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);}
 .stTabs [aria-selected="true"] {background: linear-gradient(90deg, #10b981, #059669) !important; color: white !important; border-radius: 8px;}
 </style>
@@ -101,11 +102,10 @@ with t2:
                         d_name = str(res_data.get("dish", "Cooked Meal"))
                         d_port = int(res_data.get("portions", 20))
                         d_life = str(res_data.get("shelf_life", "3 Hours"))
-                        st.success("✅ Verified & Broadcasted to NGOs!")
-                        r1, r2, r3 = st.columns(3)
-                        r1.metric("Dish", d_name)
-                        r2.metric("Portions", f"{d_port} Meals")
-                        r3.metric("Freshness", d_life)
+                        st.success(f"✅ **Detected:** {d_name} — Broadcasted to NGOs!")
+                        r1, r2 = st.columns(2)
+                        r1.metric("Estimated Portions", f"{d_port} Meals")
+                        r2.metric("Safe Freshness", d_life)
                         st.session_state.donations.insert(0, {"dish": d_name, "portions": d_port, "shelf_life": d_life, "location": loc, "status": "Available", "otp": str(random.randint(1000, 9999))})
 
 with t3:
