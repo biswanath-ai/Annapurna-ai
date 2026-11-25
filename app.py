@@ -8,15 +8,15 @@ st.set_page_config(page_title="AnnapurnaAI", page_icon="🍲", layout="wide")
 
 st.markdown("""<style>
 .stApp {background: linear-gradient(180deg, #fffbeb 0%, #f0fdf4 100%);}
-.hero {background: linear-gradient(135deg, #ea580c 0%, #f59e0b 45%, #10b981 100%); padding: 1.8rem 2rem; border-radius: 16px; color: #ffffff; margin-bottom: 1.2rem; box-shadow: 0 8px 24px rgba(234, 88, 12, 0.22);}
-.hero h1 {margin: 0; color: #ffffff; font-size: 2.3rem; font-weight: 800;}
-.hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: 1.05rem; font-weight: 500;}
-div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.9rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
+.hero {background: linear-gradient(135deg, #ea580c 0%, #f59e0b 45%, #10b981 100%); padding: 1.4rem 1.6rem; border-radius: 16px; color: #ffffff; margin-bottom: 1rem; box-shadow: 0 8px 24px rgba(234, 88, 12, 0.22);}
+.hero h1 {margin: 0; color: #ffffff; font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 800;}
+.hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: clamp(0.9rem, 2.2vw, 1.05rem); font-weight: 500;}
+div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.85rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
 div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
-.stTabs [data-baseweb="tab-list"] {gap: 8px; background: #ffffff; padding: 6px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);}
+.stTabs [data-baseweb="tab-list"] {gap: 6px; background: #ffffff; padding: 6px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); flex-wrap: wrap;}
 .stTabs [aria-selected="true"] {background: linear-gradient(90deg, #10b981, #059669) !important; color: white !important; border-radius: 8px;}
 </style>
-<div class="hero"><h1>🍲 AnnapurnaAI</h1><p>✨ Brightening Lives by Turning Campus Food Surplus into Zero-Hunger Meals • Team RudraGrid (NIST Berhampur)</p></div>""", unsafe_allow_html=True)
+<div class="hero"><h1>🍲 AnnapurnaAI</h1><p>✨ Turning Campus Food Surplus into Zero-Hunger Meals • Team RudraGrid (NIST Berhampur)</p></div>""", unsafe_allow_html=True)
 
 if "donations" not in st.session_state:
     st.session_state.donations = list((
@@ -50,23 +50,27 @@ with t1:
             students = st.slider("Registered Hostel Students", 100, 1500, 450, 25)
             rates = {"Regular Day": 0.90, "Weekend / Sunday": 0.76, "College Fest (Sankalp)": 0.62, "Exam Week": 0.68}
             pred = int(students * rates.get(day, 0.9))
-            st.success(f"🎯 Cook **{pred} plates** (Saves **{students - pred} plates**)")
+            saved = students - pred
+            st.success(f"🎯 Cook **{pred} plates** (Saves **{saved} plates** today)")
             st.info(f"🍚 **Rice:** {round(pred * 0.18, 1)} kg  |  🍲 **Dal/Curry:** {round(pred * 0.22, 1)} L")
+            st.warning(f"💰 **Est. Monthly Campus Savings:** ₹{saved * 45 * 30:,} • 💧 **Water Saved:** {saved * 120 * 30:,} L")
     with col2:
         with st.container(border=True):
             st.markdown("#### 📉 Overproduction Cut Comparison")
             df = pd.DataFrame({"Method": list(("Guesswork", "AnnapurnaAI")), "Plates": list((students, pred))}).set_index("Method")
-            st.bar_chart(df, color="#f59e0b", height=240)
+            st.bar_chart(df, color="#f59e0b", height=250)
 
 with t2:
     sc1, sc2 = st.columns(2)
     with sc1:
         with st.container(border=True):
-            up = st.file_uploader("Upload Leftover Tray Photo", type=list(("jpg", "jpeg", "png", "webp")))
+            up = st.file_uploader("Upload or Capture Food Tray Photo", type=list(("jpg", "jpeg", "png", "webp")))
             if up:
                 img = Image.open(up).convert("RGB")
                 img.thumbnail(tuple((800, 800)))
                 st.image(img, use_container_width=True)
+            else:
+                st.caption("📱 On mobile, tap Browse files to use your camera directly—or use the 1-click demo on the right!")
     with sc2:
         with st.container(border=True):
             st.markdown("#### 🛡️ Food Safety & Broadcast")
@@ -107,6 +111,15 @@ with t2:
                         r1.metric("Estimated Portions", f"{d_port} Meals")
                         r2.metric("Safe Freshness", d_life)
                         st.session_state.donations.insert(0, {"dish": d_name, "portions": d_port, "shelf_life": d_life, "location": loc, "status": "Available", "otp": str(random.randint(1000, 9999))})
+            if st.button("⚡ 1-Click Sample Campus Tray Demo", use_container_width=True):
+                if not (ok1 and ok2):
+                    st.error("⚠️ Please verify both food safety checks.")
+                else:
+                    st.success("✅ **Sample Detected:** Veg Biryani & Dal Tadka — Broadcasted!")
+                    r1, r2 = st.columns(2)
+                    r1.metric("Estimated Portions", "28 Meals")
+                    r2.metric("Safe Freshness", "3 Hours")
+                    st.session_state.donations.insert(0, {"dish": "Veg Biryani & Dal Tadka", "portions": 28, "shelf_life": "3 Hours", "location": loc, "status": "Available", "otp": str(random.randint(1000, 9999))})
 
 with t3:
     mc, fc = st.columns(list((1, 1.4)))
