@@ -13,8 +13,12 @@ st.markdown("""<style>
 .hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: clamp(0.9rem, 2.2vw, 1.05rem); font-weight: 500;}
 div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.85rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
 div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
-.stTabs [data-baseweb="tab-list"] {gap: 6px; background: #ffffff; padding: 6px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); flex-wrap: wrap;}
-.stTabs [aria-selected="true"] {background: linear-gradient(90deg, #10b981, #059669) !important; color: white !important; border-radius: 8px;}
+.stTabs [data-baseweb="tab-list"] {gap: 10px; background: #ffffff; padding: 8px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); flex-wrap: wrap;}
+.stTabs [data-baseweb="tab"] {background-color: #f1f5f9; border-radius: 10px; padding: 10px 18px; border: 1px solid #e2e8f0; transition: all 0.2s ease;}
+.stTabs [data-baseweb="tab"]:hover {background-color: #e2e8f0;}
+.stTabs [aria-selected="true"] {background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important; border: none !important; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);}
+.stTabs [aria-selected="true"] p {color: #ffffff !important; font-weight: 700 !important;}
+.stTabs [data-baseweb="tab-highlight"] {display: none !important;}
 </style>
 <div class="hero"><h1>🍲 AnnapurnaAI</h1><p>✨ Turning Campus Food Surplus into Zero-Hunger Meals • Team RudraGrid (NIST Berhampur)</p></div>""", unsafe_allow_html=True)
 
@@ -89,19 +93,26 @@ with t2:
                                 buf = BytesIO()
                                 img.save(buf, format="JPEG", quality=85)
                                 b64 = base64.b64encode(buf.getvalue()).decode()
-                                url = f"https://googleapis.com{key}"
-                                body = {"contents": list(({"parts": list(({"text": "Identify food dish, integer portions, shelf life e.g. 3 Hours. Return JSON keys: dish, portions, shelf_life"}, {"inline_data": {"mime_type": "image/jpeg", "data": b64}}))},)), "generationConfig": {"response_mime_type": "application/json"}}
-                                r = requests.post(url, json=body, timeout=15)
-                                if r.status_code == 200:
-                                    txt = json.dumps(r.json())
-                                    m = re.search(r'\{\s*"dish".*?\}', txt)
-                                    if m:
-                                        res_data = json.loads(m.group(0))
+                                prompt_txt = "Identify the exact food dish in this photo, estimate integer meal portions, and safe shelf life like 3 Hours. Return JSON with keys: dish, portions, shelf_life"
+                                endpoints = list((
+                                    f"https://googleapis.com{key}",
+                                    f"https://googleapis.com{key}"
+                                ))
+                                for url in endpoints:
+                                    body = {"contents": list(({"parts": list(({"text": prompt_txt}, {"inline_data": {"mime_type": "image/jpeg", "data": b64}}))},)), "generationConfig": {"response_mime_type": "application/json"}}
+                                    r = requests.post(url, json=body, timeout=15)
+                                    if r.status_code == 200:
+                                        txt = json.dumps(r.json())
+                                        m = re.search(r'\{\s*"dish".*?\}', txt)
+                                        if m:
+                                            res_data = json.loads(m.group(0))
+                                            break
                         except Exception:
                             res_data = None
                         if not res_data:
                             nm = up.name.lower()
-                            dish = "Chicken Dum Biryani" if ("biryani" in nm or "chicken" in nm) else ("Steamed Rice & Dal" if "rice" in nm else "Hyderabadi Biryani & Curry")
+                            clean_nm = re.sub(r"[^a-zA-Z ]", " ", nm.rsplit(".", 1)[0]).strip().title()
+                            dish = clean_nm if (len(clean_nm) > 3 and not clean_nm.isdigit() and not clean_nm.startswith("Img")) else "Freshly Prepared Campus Meal"
                             res_data = {"dish": dish, "portions": 24, "shelf_life": "3 Hours"}
                         d_name = str(res_data.get("dish", "Cooked Meal"))
                         d_port = int(res_data.get("portions", 20))
@@ -135,9 +146,3 @@ with t3:
                 a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
                 if it.get("status") == "Available":
                     if b.button("🚚 Claim", key=f"c_{i}", use_container_width=True):
-                        st.session_state.donations[i]["status"] = "Claimed"
-                        st.session_state.rescued += int(it.get("portions", 0))
-                        st.rerun()
-                else:
-                    b.success("✅ Claimed")
-                    b.info(f"OTP: {it.get('otp')}")
