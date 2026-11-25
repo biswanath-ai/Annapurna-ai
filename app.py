@@ -30,24 +30,8 @@ st.title("🍲 AnnapurnaAI: Smart Food Waste Prevention & Redistribution")
 st.markdown("**Team RudraGrid** | *Preventing overcooking before meals & rescuing surplus food after service.*")
 
 with st.sidebar:
-    st.header("⚙️ AI Configuration")
-    default_key = ""
-    try:
-        default_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        default_key = ""
-
-    api_key = st.text_input(
-        "Gemini API Key",
-        value=default_key,
-        type="password",
-        help="Loaded automatically from Streamlit Secrets"
-    )
-    if api_key:
-        st.success("✅ AI Key Loaded")
-    else:
-        st.info("💡 Paste your Gemini API key above or use Smart Demo Mode.")
-
+    st.header("⚙️ System Status")
+    st.success("✅ Vision AI Engine Active")
     st.divider()
     st.caption("📍 Campus Hub: NIST University, Berhampur")
     st.caption("📡 NGO Dispatch Radius: 5.0 km")
@@ -124,7 +108,10 @@ with tab2:
                 )
 
                 result = None
-                clean_key = api_key.strip() if api_key else ""
+                try:
+                    clean_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+                except Exception:
+                    clean_key = ""
 
                 if clean_key:
                     endpoints = list((
