@@ -129,11 +129,14 @@ with tab2:
                     )
 
                     result = None
-                    models_to_try = list(("gemini-2.5-flash", "gemini-2.0-flash"))
+                    clean_key = api_key.strip()
+                    endpoints = list((
+                        f"https://googleapis.com{clean_key}",
+                        f"https://googleapis.com{clean_key}"
+                    ))
 
-                    for model_name in models_to_try:
+                    for url in endpoints:
                         try:
-                            url = f"https://googleapis.com{model_name}:generateContent"
                             payload = {
                                 "contents": list((
                                     {
@@ -148,15 +151,7 @@ with tab2:
                                     "temperature": 0.2
                                 }
                             }
-                            if model_name == "gemini-2.5-flash":
-                                payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
-
-                            res = requests.post(
-                                url,
-                                params={"key": api_key.strip()},
-                                json=payload,
-                                timeout=25
-                            )
+                            res = requests.post(url, json=payload, timeout=25)
                             if res.status_code == 200:
                                 data = res.json()
                                 candidates = data.get("candidates", ())
@@ -177,7 +172,7 @@ with tab2:
                             continue
 
                     if result is None:
-                        st.error("Could not connect to Gemini API. Please verify your API key in Streamlit Secrets.")
+                        st.error("API connection failed. Please double-check your copied key in Streamlit Secrets.")
                     else:
                         dish_name = str(result.get("dish", "Cooked Meal"))
                         portions_val = result.get("portions", 15)
