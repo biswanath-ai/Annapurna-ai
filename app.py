@@ -1,5 +1,7 @@
 import streamlit as st
-from google import genai
+import requests
+import base64
+from io import BytesIO
 from PIL import Image
 import json
 
@@ -69,7 +71,7 @@ with tab2:
     uploaded_file = st.file_uploader("Upload Leftover Food Tray Photo", type=list(("jpg", "jpeg", "png")))
 
     if uploaded_file is not None:
-        image = Image.open(uploaded_file)
+        image = Image.open(uploaded_file).convert("RGB")
         st.image(image, caption="Uploaded Kitchen Tray", width=350)
 
         if st.button("🔍 Scan Tray & Alert NGOs", type="primary"):
@@ -78,33 +80,49 @@ with tab2:
             else:
                 with st.spinner("Analyzing food tray with Gemini Vision AI..."):
                     try:
-                        client = genai.Client(api_key=api_key)
+                        buffered = BytesIO()
+                        image.save(buffered, format="JPEG")
+                        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+                        url = f"https://googleapis.com{api_key.strip()}"
                         prompt = (
                             "Analyze this food image for a surplus food donation app. "
                             "Identify the dish name, estimate how many human meal portions are visible (as an integer), "
                             "and estimate safe shelf-life at room temperature (e.g., '3 Hours'). "
                             "Respond ONLY in valid JSON with keys: 'dish', 'portions', 'shelf_life'."
                         )
-                        response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=list((image, prompt))
-                        )
-                        raw_text = response.text.strip().removeprefix("```json").removesuffix("```").strip()
-                        result = json.loads(raw_text)
+                        payload = {
+                            "contents": list((
+                                {
+                                    "parts": list((
+                                        {"text": prompt},
+                                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
+                                    ))
+                                },
+                            ))
+                        }
+                        res = requests.post(url, json=payload, timeout=30)
+                        data = res.json()
+                        if "error" in data:
+                            st.error(f"API Error: {data.get('error').get('message')}")
+                        else:
+                            raw_text = data.get("candidates")[0].get("content").get("parts")[0].get("text")
+                            raw_text = raw_text.strip().removeprefix("```json").removesuffix("```").strip()
+                            result = json.loads(raw_text)
 
-                        st.success("✅ Food Analyzed & Broadcasted to Nearby NGOs (< 5 km)!")
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Detected Dish", result.get("dish", "Cooked Meal"))
-                        c2.metric("Estimated Portions", f"{result.get('portions', 20)} Meals")
-                        c3.metric("Freshness Timer", result.get("shelf_life", "3 Hours"))
+                            st.success("✅ Food Analyzed & Broadcasted to Nearby NGOs (< 5 km)!")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Detected Dish", result.get("dish", "Cooked Meal"))
+                            c2.metric("Estimated Portions", f"{result.get('portions', 20)} Meals")
+                            c3.metric("Freshness Timer", result.get("shelf_life", "3 Hours"))
 
-                        st.session_state.donations.insert(0, {
-                            "dish": result.get("dish", "Cooked Meal"),
-                            "portions": result.get("portions", 20),
-                            "shelf_life": result.get("shelf_life", "3 Hours"),
-                            "location": "NIST Campus Kitchen (0.5 km away)",
-                            "status": "Available"
-                        })
+                            st.session_state.donations.insert(0, {
+                                "dish": result.get("dish", "Cooked Meal"),
+                                "portions": result.get("portions", 20),
+                                "shelf_life": result.get("shelf_life", "3 Hours"),
+                                "location": "NIST Campus Kitchen (0.5 km away)",
+                                "status": "Available"
+                            })
                     except Exception as e:
                         st.error(f"Error analyzing image: {e}")
 
