@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 from PIL import Image
 import json
+import re
 
 st.set_page_config(page_title="AnnapurnaAI", page_icon="🍲", layout="wide")
 
@@ -16,6 +17,13 @@ if "donations" not in st.session_state:
             "location": "NIST Hostel Mess 1 (1.2 km away)",
             "status": "Available"
         },
+        {
+            "dish": "Veg Pulao & Paneer Masala",
+            "portions": 22,
+            "shelf_life": "2.5 Hours",
+            "location": "NIST Central Cafeteria (0.8 km away)",
+            "status": "Available"
+        }
     ))
 
 st.title("🍲 AnnapurnaAI: Smart Food Waste Prevention & Redistribution")
@@ -23,12 +31,26 @@ st.markdown("**Team RudraGrid** | *Preventing overcooking before meals & rescuin
 
 with st.sidebar:
     st.header("⚙️ AI Configuration")
-    default_key = st.secrets.get("GEMINI_API_KEY", "")
-    api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Loaded automatically from Streamlit Secrets")
+    default_key = ""
+    try:
+        default_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        default_key = ""
+
+    api_key = st.text_input(
+        "Gemini API Key",
+        value=default_key,
+        type="password",
+        help="Loaded automatically from Streamlit Secrets"
+    )
     if api_key:
         st.success("✅ AI Engine Connected & Ready")
     else:
         st.info("💡 Paste your Gemini API key above to enable live Vision AI tray scanning.")
+
+    st.divider()
+    st.caption("📍 Campus Hub: NIST University, Berhampur")
+    st.caption("📡 NGO Dispatch Radius: 5.0 km")
 
 tab1, tab2, tab3 = st.tabs(list((
     "📊 1. AI Kitchen Prep Advisor",
@@ -40,7 +62,7 @@ tab1, tab2, tab3 = st.tabs(list((
 with tab1:
     st.subheader("Daily Meal Quantity Forecaster")
     st.write("Replaces manual headcount guesswork with data-driven prep targets.")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         meal_type = st.selectbox("Select Meal", list(("Lunch", "Dinner", "Breakfast")))
@@ -50,7 +72,12 @@ with tab1:
             "College Fest / Event (Sankalp)",
             "Exam Week / Holiday"
         )))
-        registered_students = st.number_input("Total Hostel Students Registered", min_value=50, max_value=2000, value=450)
+        registered_students = st.number_input(
+            "Total Hostel Students Registered",
+            min_value=50,
+            max_value=2000,
+            value=450
+        )
 
     with col2:
         factors = {
@@ -62,7 +89,11 @@ with tab1:
         predicted_headcount = int(registered_students * factors.get(day_type, 0.9))
         saved_meals = registered_students - predicted_headcount
 
-        st.metric("Recommended Meals to Cook", f"{predicted_headcount} Plates", f"-{saved_meals} plates saved from waste")
+        st.metric(
+            "Recommended Meals to Cook",
+            f"{predicted_headcount} Plates",
+            f"-{saved_meals} plates saved from waste"
+        )
         st.write(f"**Rice / Grain Prep:** {round(predicted_headcount * 0.18, 1)} kg")
         st.write(f"**Dal / Curry Prep:** {round(predicted_headcount * 0.22, 1)} Liters")
         st.success("✅ Prep target calibrated to cut overproduction by ~18%.")
@@ -72,67 +103,99 @@ with tab2:
     st.subheader("5-Second Leftover Tray Scanner")
     st.write("Upload a photo of leftover food trays. Vision AI detects the dish, estimates portions, and sets a freshness timer.")
 
-    uploaded_file = st.file_uploader("Upload Leftover Food Tray Photo", type=list(("jpg", "jpeg", "png")))
+    uploaded_file = st.file_uploader(
+        "Upload Leftover Food Tray Photo",
+        type=list(("jpg", "jpeg", "png", "webp"))
+    )
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file).convert("RGB")
+        image.thumbnail(tuple((800, 800)))
         st.image(image, caption="Uploaded Kitchen Tray", width=350)
 
         if st.button("🔍 Scan Tray & Alert NGOs", type="primary"):
             if not api_key:
-                st.warning("⚠️ Please configure your Gemini API Key first!")
+                st.warning("⚠️ Please configure your Gemini API Key in the left sidebar first!")
             else:
                 with st.spinner("Analyzing food tray with Gemini Vision AI..."):
-                    try:
-                        buffered = BytesIO()
-                        image.save(buffered, format="JPEG")
-                        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    buffered = BytesIO()
+                    image.save(buffered, format="JPEG", quality=85)
+                    img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-                        base = "https://googleapis.com"
-                        path = "/v1beta/models/gemini-2.5-flash:generateContent"
-                        url = base + path
-                        prompt = (
-                            "Analyze this food image for a surplus food donation app. "
-                            "Identify the dish name, estimate how many human meal portions are visible (as an integer), "
-                            "and estimate safe shelf-life at room temperature (e.g., '3 Hours'). "
-                            "Respond ONLY in valid JSON with keys: 'dish', 'portions', 'shelf_life'."
-                        )
-                        payload = {
-                            "contents": list((
-                                {
-                                    "parts": list((
-                                        {"text": prompt},
-                                        {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
-                                    ))
-                                },
-                            ))
-                        }
-                        res = requests.post(url, params={"key": api_key.strip()}, json=payload, timeout=30)
-                        data = res.json()
-                        if "error" in data:
-                            st.error(f"API Error: {data.get('error').get('message')}")
-                        else:
-                            first_cand = next(iter(data.get("candidates", ())))
-                            first_part = next(iter(first_cand.get("content", {}).get("parts", ())))
-                            raw_text = first_part.get("text", "")
-                            raw_text = raw_text.strip().removeprefix("```json").removesuffix("```").strip()
-                            result = json.loads(raw_text)
+                    prompt = (
+                        "Identify the food dish in this image, estimate how many human meal portions "
+                        "are visible as a single integer, and estimate safe room-temperature shelf life "
+                        "like '3 Hours'. Return ONLY a JSON object with keys: dish, portions, shelf_life."
+                    )
 
-                            st.success("✅ Food Analyzed & Broadcasted to Nearby NGOs (< 5 km)!")
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Detected Dish", result.get("dish", "Cooked Meal"))
-                            c2.metric("Estimated Portions", f"{result.get('portions', 20)} Meals")
-                            c3.metric("Freshness Timer", result.get("shelf_life", "3 Hours"))
+                    result = None
+                    models_to_try = list(("gemini-2.5-flash", "gemini-2.0-flash"))
 
-                            st.session_state.donations.insert(0, {
-                                "dish": result.get("dish", "Cooked Meal"),
-                                "portions": result.get("portions", 20),
-                                "shelf_life": result.get("shelf_life", "3 Hours"),
-                                "location": "NIST Campus Kitchen (0.5 km away)",
-                                "status": "Available"
-                            })
-                    except Exception as e:
-                        st.error(f"Error analyzing image: {e}")
+                    for model_name in models_to_try:
+                        try:
+                            url = f"https://googleapis.com{model_name}:generateContent"
+                            payload = {
+                                "contents": list((
+                                    {
+                                        "parts": list((
+                                            {"text": prompt},
+                                            {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}
+                                        ))
+                                    },
+                                )),
+                                "generationConfig": {
+                                    "response_mime_type": "application/json",
+                                    "temperature": 0.2
+                                }
+                            }
+                            if model_name == "gemini-2.5-flash":
+                                payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+
+                            res = requests.post(
+                                url,
+                                params={"key": api_key.strip()},
+                                json=payload,
+                                timeout=25
+                            )
+                            if res.status_code == 200:
+                                data = res.json()
+                                candidates = data.get("candidates", ())
+                                first_cand = next(iter(candidates), {})
+                                parts = first_cand.get("content", {}).get("parts", ())
+                                raw_text = ""
+                                for p in parts:
+                                    if "text" in p:
+                                        raw_text += p.get("text", "")
+
+                                match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+                                if match:
+                                    parsed = json.loads(match.group(0))
+                                    if parsed.get("dish"):
+                                        result = parsed
+                                        break
+                        except Exception:
+                            continue
+
+                    if result is None:
+                        st.error("Could not connect to Gemini API. Please verify your API key in Streamlit Secrets.")
+                    else:
+                        dish_name = str(result.get("dish", "Cooked Meal"))
+                        portions_val = result.get("portions", 15)
+                        shelf_val = str(result.get("shelf_life", "3 Hours"))
+
+                        st.success("✅ Food Analyzed & Broadcasted to Nearby NGOs (< 5 km)!")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Detected Dish", dish_name)
+                        c2.metric("Estimated Portions", f"{portions_val} Meals")
+                        c3.metric("Freshness Timer", shelf_val)
+
+                        st.session_state.donations.insert(0, {
+                            "dish": dish_name,
+                            "portions": portions_val,
+                            "shelf_life": shelf_val,
+                            "location": "NIST Campus Kitchen (0.5 km away)",
+                            "status": "Available"
+                        })
 
 # TAB 3: NGO PORTAL
 with tab3:
