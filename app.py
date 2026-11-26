@@ -1,239 +1,257 @@
-import streamlit as st
-import requests, base64, json, re, random, datetime, hashlib
-from io import BytesIO
-from PIL import Image
+import datetime as dt
+import hashlib
+import math
+import random
+
 import pandas as pd
-import jwt
+import streamlit as st
+
 
 st.set_page_config(page_title="AnnapurnaAI", page_icon="🍲", layout="wide")
 
-JWT_SECRET = st.secrets.get("JWT_SECRET", "annapurna_rudragrid_nist_2026_secret")
-JWT_ALGORITHM = "HS256"
+MEAL_COST = 45
+KG_PER_MEAL = 0.35
+MAX_SAFE_HOLDING_HOURS = 4
 
-st.markdown("""<style>
-.stApp {background: linear-gradient(180deg, #fffbeb 0%, #f0fdf4 100%);}
-.hero {background: linear-gradient(135deg, #ea580c 0%, #f59e0b 45%, #10b981 100%); padding: 1.4rem 1.6rem; border-radius: 16px; color: #ffffff; margin-bottom: 1rem; box-shadow: 0 8px 24px rgba(234, 88, 12, 0.22);}
-.hero h1 {margin: 0; color: #ffffff; font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 800;}
-.hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: clamp(0.9rem, 2.2vw, 1.05rem); font-weight: 500;}
-div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.85rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
-div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
-.stTabs [data-baseweb="tab-list"] {gap: 10px; background: #ffffff; padding: 8px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); flex-wrap: wrap;}
-.stTabs [data-baseweb="tab"] {background-color: #f1f5f9; border-radius: 10px; padding: 10px 18px; border: 1px solid #e2e8f0;}
-.stTabs [aria-selected="true"] {background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important; border: none !important; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);}
-.stTabs [aria-selected="true"] p {color: #ffffff !important; font-weight: 700 !important;}
-.stTabs [data-baseweb="tab-highlight"] {display: none !important;}
-</style>
-<div class="hero"><h1>🍲 AnnapurnaAI</h1><p>✨ Turning Campus Food Surplus into Zero-Hunger Meals • Team RudraGrid (NIST Berhampur)</p></div>""", unsafe_allow_html=True)
 
-def hash_pw(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
-
-def create_jwt(email: str, name: str, role: str, org: str, ttl_mins: int = 30) -> str:
-    now = datetime.datetime.now(datetime.timezone.utc)
-    payload = {
-        "sub": email,
-        "name": name,
-        "role": role,
-        "org": org,
-        "iat": int(now.timestamp()),
-        "exp": int((now + datetime.timedelta(minutes=ttl_mins)).timestamp()),
+def init_state():
+    defaults = {
+        "donations": [],
+        "rescued": 0,
+        "planned_plates": 405,
+        "community_deliveries": [],
+        "shortage_log": [],
+        "audit_log": [],
+        "ngos": [
+            {"name": "Berhampur Roti Bank", "distance": 0.8, "capacity": 45, "need": 95, "available": True, "phone": "Verified partner"},
+            {"name": "Asha Kiran Trust", "distance": 1.4, "capacity": 30, "need": 88, "available": True, "phone": "Verified partner"},
+            {"name": "Ganjam Seva Foundation", "distance": 2.1, "capacity": 55, "need": 82, "available": True, "phone": "Verified partner"},
+            {"name": "Saksham Community Kitchen", "distance": 3.3, "capacity": 25, "need": 91, "available": True, "phone": "Verified partner"},
+            {"name": "Udaan Youth Collective", "distance": 4.6, "capacity": 20, "need": 76, "available": True, "phone": "Verified partner"},
+        ],
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-def verify_jwt(token: str):
-    try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM]), None
-    except jwt.ExpiredSignatureError:
-        return None, "JWT token expired. Please sign in again."
-    except jwt.InvalidTokenError as e:
-        return None, f"Invalid JWT token: {e}"
 
-if "users" not in st.session_state:
-    st.session_state.users = {
-        "mess@nist.edu": {
-            "name": "NIST Mess Manager",
-            "password": hash_pw("Annapurna123!"),
-            "role": "Mess Manager",
-            "org": "NIST Hostel Mess 1"
-        },
-        "ngo@berhampur.org": {
-            "name": "NGO Coordinator",
-            "password": hash_pw("Annapurna123!"),
-            "role": "NGO Partner",
-            "org": "Berhampur Roti Bank"
-        }
+def log(event):
+    st.session_state.audit_log.insert(0, {"time": dt.datetime.now().strftime("%d %b %H:%M"), "event": event})
+
+
+def freshness_hours(cooked_at):
+    return max(0.0, (dt.datetime.now() - dt.datetime.combine(dt.date.today(), cooked_at)).total_seconds() / 3600)
+
+
+def food_is_safe(cooked_at, covered, temp_checked, allergen_label):
+    age = freshness_hours(cooked_at)
+    reasons = []
+    if age > MAX_SAFE_HOLDING_HOURS:
+        reasons.append(f"Food is {age:.1f} hours old, above this app's {MAX_SAFE_HOLDING_HOURS}-hour dispatch limit")
+    if not covered:
+        reasons.append("Food was not confirmed as clean and covered")
+    if not temp_checked:
+        reasons.append("Temperature check was not confirmed")
+    if not allergen_label.strip():
+        reasons.append("Allergen information is required")
+    return not reasons, reasons, age
+
+
+def rank_ngos(radius_km):
+    """Rank by current need first, then pickup capacity and proximity."""
+    candidates = [n.copy() for n in st.session_state.ngos if n["available"] and n["distance"] <= radius_km and n["capacity"] > 0]
+    for ngo in candidates:
+        ngo["score"] = round(ngo["need"] * 0.55 + min(ngo["capacity"], 50) * 0.25 + max(0, radius_km - ngo["distance"]) * 4, 1)
+    return sorted(candidates, key=lambda n: (-n["score"], n["distance"]))
+
+
+def allocate_to_ngos(portions, radius_km):
+    remaining = portions
+    plan = []
+    for ngo in rank_ngos(radius_km):
+        if remaining == 0:
+            break
+        assigned = min(remaining, ngo["capacity"])
+        plan.append({"ngo": ngo["name"], "portions": assigned, "distance": ngo["distance"], "score": ngo["score"]})
+        remaining -= assigned
+    return plan, remaining
+
+
+def add_donation(dish, portions, location, safe_hours, allergens, radius_km):
+    allocations, unassigned = allocate_to_ngos(portions, radius_km)
+    item = {
+        "id": random.randint(10000, 99999), "dish": dish, "portions": portions, "location": location,
+        "safe_hours": safe_hours, "allergens": allergens, "radius": radius_km,
+        "allocations": allocations, "unassigned": unassigned, "status": "Awaiting NGO confirmation" if allocations else "Community fallback needed",
+        "created": dt.datetime.now().strftime("%H:%M"),
     }
+    st.session_state.donations.insert(0, item)
+    log(f"Created surplus listing #{item['id']} for {portions} portions")
+    return item
 
-if "jwt_token" not in st.session_state:
-    st.session_state.jwt_token = None
 
-if not st.session_state.jwt_token:
-    _, col_auth, _ = st.columns([1, 1.5, 1])
-    with col_auth:
-        st.subheader("🔐 JWT Login")
-        with st.form("jwt_login"):
-            email = st.text_input("Email", value="mess@nist.edu")
-            password = st.text_input("Password", type="password", value="Annapurna123!")
-            c1, c2 = st.columns(2)
-            if c1.form_submit_button("Login with JWT", type="primary", use_container_width=True):
-                u = st.session_state.users.get(email.strip().lower())
-                if u and u["password"] == hash_pw(password):
-                    st.session_state.jwt_token = create_jwt(email.strip().lower(), u["name"], u["role"], u["org"])
-                    st.rerun()
-                else:
-                    st.error("Invalid email or password.")
-            if c2.form_submit_button("Quick Demo JWT", use_container_width=True):
-                u = st.session_state.users["mess@nist.edu"]
-                st.session_state.jwt_token = create_jwt("mess@nist.edu", u["name"], u["role"], u["org"])
-                st.rerun()
-    st.stop()
+def predict_demand(students, attendance, event_factor, historic_waste, buffer):
+    base = students * attendance * event_factor
+    reduction = historic_waste / 100
+    return max(1, math.ceil(base * (1 - reduction) * (1 + buffer / 100)))
 
-user_claims, auth_err = verify_jwt(st.session_state.jwt_token)
-if auth_err:
-    st.error(auth_err)
-    st.session_state.jwt_token = None
-    if st.button("Back to Login"):
-        st.rerun()
-    st.stop()
 
-if "donations" not in st.session_state:
-    st.session_state.donations = list((
-        {"dish": "Steamed Rice & Dal Tadka", "portions": 35, "shelf_life": "3 Hours", "location": "NIST Hostel Mess 1 (1.2 km)", "status": "Available", "otp": "4821"},
-        {"dish": "Veg Pulao & Paneer Masala", "portions": 22, "shelf_life": "2.5 Hours", "location": "NIST Central Cafeteria (0.8 km)", "status": "Available", "otp": "7390"}
-    ))
-if "rescued" not in st.session_state:
-    st.session_state.rescued = 1240
+def render_header():
+    st.markdown("""<style>
+    .stApp {background: linear-gradient(180deg,#fffaf0,#f0fdf4)}
+    .hero {background:linear-gradient(135deg,#ea580c,#f59e0b 48%,#059669);padding:1.35rem 1.6rem;border-radius:16px;color:white;margin-bottom:1rem}
+    .hero h1 {margin:0;color:white}.hero p {margin:.35rem 0 0;color:#fffbeb}
+    div[data-testid=\"stMetric\"] {background:white;padding:.8rem;border-radius:12px;border-left:5px solid #10b981}
+    </style><div class='hero'><h1>🍲 AnnapurnaAI</h1><p>Safe campus meal planning, surplus rescue, and fair community distribution</p></div>""", unsafe_allow_html=True)
 
-def claim_item(idx):
-    st.session_state.donations[idx]["status"] = "Claimed"
-    st.session_state.rescued += int(st.session_state.donations[idx].get("portions", 0))
 
-def add_donation(dish, port, life, loc):
-    st.success(f"✅ **Detected:** {dish} — Broadcasted to NGOs!")
-    r1, r2 = st.columns(2)
-    r1.metric("Estimated Portions", f"{port} Meals")
-    r2.metric("Safe Freshness", life)
-    st.session_state.donations.insert(0, {"dish": dish, "portions": port, "shelf_life": life, "location": loc, "status": "Available", "otp": str(random.randint(1000, 9999))})
+def render_planner():
+    st.subheader("1. Kitchen Demand & Shortage Advisor")
+    left, right = st.columns(2)
+    with left:
+        students = st.number_input("Registered diners", 50, 5000, 450, 25)
+        attendance = st.slider("Expected attendance", 40, 100, 90) / 100
+        occasion = st.selectbox("Campus day", ["Regular day", "Weekend", "Exam week", "Festival / event"])
+        factors = {"Regular day": 1.0, "Weekend": .84, "Exam week": .78, "Festival / event": 1.16}
+        historic_waste = st.slider("Recent avoidable surplus (%)", 0, 30, 10)
+        buffer = st.slider("Service buffer for unexpected diners (%)", 0, 20, 6)
+        planned = predict_demand(students, attendance, factors[occasion], historic_waste, buffer)
+        st.session_state.planned_plates = planned
+        st.success(f"Recommended preparation: **{planned} plates**")
+        st.caption("Recommendation combines expected attendance, event effects, recent surplus, and a controlled service buffer.")
+    with right:
+        rice = round(planned * .18, 1)
+        curry = round(planned * .22, 1)
+        st.metric("Rice to prepare", f"{rice} kg")
+        st.metric("Dal/curry to prepare", f"{curry} L")
+        st.metric("Estimated maximum avoidable surplus", f"{max(0, students - planned)} plates")
+        st.info("Keep a small reserve of fast-cook items (rice, dal, eggs/vegetable option) rather than preparing all buffer portions in advance.")
 
-def scan_food(img, filename):
-    try:
-        key = st.secrets.get("GEMINI_API_KEY", "").strip()
-        if key:
-            buf = BytesIO()
-            img.save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode()
-            prompt = "Identify all food items present in the image, predict how many meal plates can be prepared from them (integer portions), and give safe shelf life like 3 Hours. Return JSON with keys: items_present (list of strings), dish (string summary), portions (integer), shelf_life (string)"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
-            body = {"contents": list(({"parts": list(({"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": b64}}))},)), "generationConfig": {"response_mime_type": "application/json"}}
-            r = requests.post(url, json=body, timeout=15)
-            if r.status_code == 200:
-                m = re.search(r'\{.*\}', json.dumps(r.json()), re.DOTALL)
-                if m:
-                    parsed = json.loads(m.group(0))
-                    if "dish" in parsed:
-                        return parsed
-    except Exception:
-        pass
-    clean = re.sub(r"[^a-zA-Z ]", " ", filename.rsplit(".", 1)[0]).strip().title()
-    dish = clean if (len(clean) > 3 and not clean.isdigit() and not clean.startswith("Img")) else "Freshly Prepared Campus Meal"
-    return {"items_present": [dish], "dish": dish, "portions": 24, "shelf_life": "3 Hours"}
-
-def render_tab1():
-    col1, col2 = st.columns(2)
-    with col1:
-        day = st.selectbox("Campus Schedule", list(("Regular Day", "Weekend / Sunday", "College Fest (Sankalp)", "Exam Week")))
-        students = st.slider("Registered Hostel Students", 100, 1500, 450, 25)
-        rates = {"Regular Day": 0.90, "Weekend / Sunday": 0.76, "College Fest (Sankalp)": 0.62, "Exam Week": 0.68}
-        pred = int(students * rates.get(day, 0.9))
-        saved = students - pred
-        st.success(f"🎯 Cook **{pred} plates** (Saves **{saved} plates** today)")
-        st.info(f"🍚 **Rice:** {round(pred * 0.18, 1)} kg  |  🍲 **Dal/Curry:** {round(pred * 0.22, 1)} L")
-        st.warning(f"💰 **Est. Monthly Campus Savings:** ₹{saved * 45 * 30:,} • 💧 **Water Saved:** {saved * 120 * 30:,} L")
-    with col2:
-        st.markdown("#### 📉 Overproduction Cut Comparison")
-        df = pd.DataFrame({"Method": list(("Guesswork", "AnnapurnaAI")), "Plates": list((students, pred))}).set_index("Method")
-        st.bar_chart(df, color="#f59e0b", height=250)
-
-def render_tab2():
-    food_items_qty = st.text_input("Food Items & Quantity (e.g., Rice 10 kg, Dal 5 L, Paneer 3 kg)", placeholder="Enter Rice, Dal, etc. food items names and quantity")
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        up = st.file_uploader("Upload or Capture Food Tray Photo", type=list(("jpg", "jpeg", "png", "webp")))
-        img = None
-        if up:
-            img = Image.open(up).convert("RGB")
-            img.thumbnail(tuple((800, 800)))
-            st.image(img, use_container_width=True)
-            with st.spinner("Scanning photo with AI..."):
-                scan_res = scan_food(img, up.name)
-            items_list = scan_res.get("items_present") or [scan_res.get("dish", "Food Item")]
-            st.info(f"🧾 **Items Present:** {', '.join(str(x) for x in items_list)}")
-            st.success(f"🍽️ **Estimated Preparable Plates:** {int(scan_res.get('portions', 24))} Plates")
-        else:
-            st.caption("📱 On mobile, tap Browse files to use your camera directly—or use the 1-click demo on the right!")
-    with sc2:
-        st.markdown("#### 🛡️ Food Safety & Broadcast")
-        ok1 = st.checkbox("Cooked within last 2 hours", value=True)
-        ok2 = st.checkbox("Stored in clean, covered trays", value=True)
-        loc = st.selectbox("Kitchen Location", list(("NIST Central Cafeteria (0.5 km)", "NIST Hostel Mess 1 (1.2 km)")))
-        if img is not None and st.button("🔍 Scan Tray & Alert NGOs", type="primary", use_container_width=True):
-            if not (ok1 and ok2):
-                st.error("⚠️ Please verify both food safety checks.")
-            else:
-                with st.spinner("Scanning tray with Gemini Vision AI..."):
-                    res = scan_food(img, up.name)
-                    dish_label = str(res.get("dish", "Cooked Meal"))
-                    if food_items_qty.strip():
-                        dish_label = f"{dish_label} ({food_items_qty.strip()})"
-                    add_donation(dish_label, int(res.get("portions", 20)), str(res.get("shelf_life", "3 Hours")), loc)
-        if st.button("⚡ 1-Click Sample Campus Tray Demo", use_container_width=True):
-            if not (ok1 and ok2):
-                st.error("⚠️ Please verify both food safety checks.")
-            else:
-                demo_dish = f"Veg Biryani & Dal Tadka ({food_items_qty.strip()})" if food_items_qty.strip() else "Veg Biryani & Dal Tadka"
-                add_donation(demo_dish, 28, "3 Hours", loc)
-
-def render_tab3():
-    mc, fc = st.columns(list((1, 1.4)))
-    with mc:
-        st.map(pd.DataFrame({"lat": list((19.1982, 19.2055, 19.2140)), "lon": list((84.7458, 84.7580, 84.7720))}), zoom=12)
-        st.caption("📍 NIST Campus & Partner NGOs in Berhampur (< 5 km)")
-    with fc:
-        for i, it in enumerate(st.session_state.donations):
-            with st.container(border=True):
-                a, b = st.columns(list((2.5, 1)))
-                a.markdown(f"### 🍛 {it.get('dish')} ({it.get('portions')} Portions)")
-                a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
-                if it.get("status") == "Available":
-                    b.button("🚚 Claim", key=f"c_{i}", on_click=claim_item, args=(i,), use_container_width=True)
-                else:
-                    b.success("✅ Claimed")
-                    b.info(f"OTP: {it.get('otp')}")
-
-with st.sidebar:
-    st.markdown(f"### 🔐 {user_claims['name']}")
-    st.caption(f"{user_claims['role']} • {user_claims['org']}")
-    if st.button("Logout", use_container_width=True):
-        st.session_state.jwt_token = None
-        st.rerun()
     st.divider()
-    st.header("🌟 Live Hub Status")
-    st.success("✅ Vision AI Engine Active")
-    st.warning("📡 Dispatch Radius: 5.0 km • Berhampur")
-    st.markdown("### 🏥 Partner NGOs\n* **Berhampur Roti Bank**\n* **Asha Kiran Trust**\n* **Ganjam Seva Foundation**")
+    st.markdown("#### 🚨 If more people arrive than food prepared")
+    actual = st.number_input("Actual diners currently present", 0, 5000, planned, 1)
+    served = st.number_input("Meals already served", 0, 5000, min(planned, actual), 1)
+    remaining_food = max(0, planned - served)
+    waiting = max(0, actual - served)
+    if st.button("Run shortage response", type="primary"):
+        if waiting <= remaining_food:
+            st.success(f"Enough prepared food remains for the {waiting} diners waiting. Continue normal service.")
+        else:
+            shortage = waiting - remaining_food
+            fair_share = max(1, remaining_food // waiting) if waiting else 0
+            st.error(f"Potential shortage: **{shortage} meals** after existing prepared food is served.")
+            st.markdown(f"1. Announce the situation and use a token/queue system.  \\n+2. Serve the {remaining_food} remaining meals fairly (temporary target: {fair_share} meal-equivalent per waiting diner).  \\n+3. Start the pre-approved fast-cook reserve for **{shortage} meals**; notify the kitchen manager and nearby campus kitchens.  \\n+4. Record unmet demand—tomorrow's prediction gets a higher buffer.")
+            st.session_state.shortage_log.insert(0, {"time": dt.datetime.now().strftime("%H:%M"), "shortage": shortage, "actual": actual, "planned": planned})
+            log(f"Shortage response activated: {shortage} extra meals requested")
 
-kg = round(st.session_state.rescued * 0.35, 1)
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("🍽️ Meals Rescued", f"{st.session_state.rescued:,}", "+22 today")
-c2.metric("⚖️ Waste Prevented", f"{kg} kg", "Zero landfill")
-c3.metric("🌍 CO₂ Saved", f"{round(kg * 2.5, 1)} kg", "-18% footprint")
-c4.metric("🚚 Avg. Pickup", "24 Mins", "Safe window")
-st.divider()
 
-t1, t2, t3 = st.tabs(list(("📊 1. Kitchen Prep Advisor", "📸 2. Vision AI Scanner", "🤝 3. NGO Dispatch & Map")))
-with t1:
-    render_tab1()
-with t2:
-    render_tab2()
-with t3:
-    render_tab3()
+def render_safety_and_listing():
+    st.subheader("2. Safe Surplus Listing & Matching")
+    st.caption("Food is listed only after the kitchen confirms its condition. Follow your institution's food-safety policy and local rules.")
+    with st.form("surplus_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            dish = st.text_input("Food item", placeholder="e.g., Veg pulao and dal")
+            portions = st.number_input("Available portions", 1, 1000, 25)
+            location = st.selectbox("Pickup location", ["NIST Central Cafeteria", "NIST Hostel Mess 1", "Campus event venue"])
+            cooked_at = st.time_input("Cooking completed at", value=(dt.datetime.now() - dt.timedelta(hours=1)).time().replace(second=0, microsecond=0))
+        with c2:
+            covered = st.checkbox("Food is in clean, covered containers")
+            temp_checked = st.checkbox("Kitchen staff checked the food temperature")
+            allergens = st.text_input("Allergen information", placeholder="e.g., dairy, nuts; or 'none known'")
+            radius = st.slider("Dispatch radius (km)", 1, 15, 5)
+        submit = st.form_submit_button("Verify safety and create listing", type="primary", use_container_width=True)
+    if submit:
+        if not dish.strip():
+            st.error("Please name the food item.")
+            return
+        safe, reasons, age = food_is_safe(cooked_at, covered, temp_checked, allergens)
+        if not safe:
+            st.error("Listing paused: " + "; ".join(reasons))
+            return
+        safe_hours = round(MAX_SAFE_HOLDING_HOURS - age, 1)
+        item = add_donation(dish.strip(), portions, location, safe_hours, allergens.strip(), radius)
+        st.success(f"Verified listing created. It has about {safe_hours} safe hours remaining in this app's workflow.")
+        if item["allocations"]:
+            st.markdown("**Recommended allocation (need + capacity + distance):**")
+            st.dataframe(pd.DataFrame(item["allocations"]), use_container_width=True, hide_index=True)
+        if item["unassigned"]:
+            st.warning(f"{item['unassigned']} portions remain unassigned. Use the community fallback plan below after NGO confirmation.")
+        elif not item["allocations"]:
+            st.warning("No available NGO is in the selected radius. Create a supervised community distribution plan below.")
+
+
+def render_dispatch():
+    st.subheader("3. NGO Dispatch, Fair Allocation & Community Fallback")
+    radius = st.slider("View partner NGOs within (km)", 1, 15, 5, key="dispatch_radius")
+    ranked = rank_ngos(radius)
+    if ranked:
+        st.markdown("**Who receives food when five NGOs are available?** The app prioritises verified NGOs with the highest current need, enough pickup capacity, and a shorter pickup distance. It splits a large listing across them instead of sending everything to one organisation.")
+        view = pd.DataFrame(ranked)[["name", "distance", "capacity", "need", "score", "phone"]]
+        view.columns = ["NGO", "Distance (km)", "Free capacity", "Need score", "Match score", "Status"]
+        st.dataframe(view, use_container_width=True, hide_index=True)
+    else:
+        st.warning("No available verified NGO is currently within this radius.")
+
+    st.markdown("#### Active food listings")
+    if not st.session_state.donations:
+        st.info("No surplus food has been listed yet.")
+    for item in st.session_state.donations:
+        with st.container(border=True):
+            a, b = st.columns([3, 1])
+            a.markdown(f"**#{item['id']} · {item['dish']}** — {item['portions']} portions")
+            a.caption(f"{item['location']} · {item['safe_hours']} safe hours left · Allergens: {item['allergens']} · {item['status']}")
+            if item["allocations"]:
+                a.write("Allocation: " + " · ".join(f"{x['ngo']}: {x['portions']}" for x in item["allocations"]))
+            if item["status"] == "Awaiting NGO confirmation":
+                if b.button("Confirm handover", key=f"confirm_{item['id']}"):
+                    item["status"] = "NGO pickup confirmed"
+                    st.session_state.rescued += item["portions"] - item["unassigned"]
+                    log(f"NGO handover confirmed for listing #{item['id']}")
+                    st.rerun()
+            else:
+                b.success(item["status"])
+
+    st.divider()
+    st.markdown("#### 🏘️ No NGO available? Supervised community fallback")
+    st.caption("Do not go door-to-door alone. Use verified volunteers, a public pickup point, consent, a queue, and a named supervisor. Never distribute food that failed safety checks.")
+    with st.form("community_form"):
+        source = st.selectbox("Food listing for fallback", [f"#{d['id']} — {d['dish']} ({d['unassigned'] or d['portions']} portions)" for d in st.session_state.donations] or ["No active listing"])
+        zones = st.multiselect("Neighbourhood/pickup zones", ["Campus gate pickup point", "Ward 1 community centre", "Ward 2 community centre", "Night shelter partner"], default=["Campus gate pickup point"])
+        volunteers = st.number_input("Verified adult volunteers", 0, 20, 2)
+        supervisor = st.text_input("Named supervisor / authorised partner")
+        create_route = st.form_submit_button("Create supervised distribution plan")
+    if create_route:
+        if source == "No active listing" or not zones or volunteers < 2 or not supervisor.strip():
+            st.error("Choose a listing and zone, assign at least two verified adult volunteers, and name an authorised supervisor.")
+        else:
+            st.session_state.community_deliveries.insert(0, {"listing": source, "zones": ", ".join(zones), "volunteers": volunteers, "supervisor": supervisor, "status": "Ready for supervisor approval"})
+            log("Created supervised community fallback plan")
+            st.success("Community plan created. Supervisor must approve it before distribution.")
+    if st.session_state.community_deliveries:
+        st.dataframe(pd.DataFrame(st.session_state.community_deliveries), use_container_width=True, hide_index=True)
+
+
+def render_dashboard():
+    kg = st.session_state.rescued * KG_PER_MEAL
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Meals safely handed over", st.session_state.rescued)
+    c2.metric("Waste prevented", f"{kg:.1f} kg")
+    c3.metric("Estimated CO₂ avoided", f"{kg * 2.5:.1f} kg")
+    c4.metric("Open surplus listings", sum(x["status"] != "NGO pickup confirmed" for x in st.session_state.donations))
+    if st.session_state.audit_log:
+        with st.expander("Audit trail"):
+            st.dataframe(pd.DataFrame(st.session_state.audit_log), use_container_width=True, hide_index=True)
+
+
+init_state()
+render_header()
+render_dashboard()
+tabs = st.tabs(["📊 Demand & shortage", "🛡️ Safe surplus", "🤝 Dispatch & fallback"])
+with tabs[0]:
+    render_planner()
+with tabs[1]:
+    render_safety_and_listing()
+with tabs[2]:
+    render_dispatch()
+
