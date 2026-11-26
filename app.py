@@ -1,446 +1,239 @@
 import streamlit as st
-import jwt
-import datetime
-import time
-import hashlib
-import json
+import requests, base64, json, re, random, datetime, hashlib
+from io import BytesIO
+from PIL import Image
 import pandas as pd
+import jwt
 
-# ==========================================
-# 1. PAGE CONFIG & THEME STYLING
-# ==========================================
-st.set_page_config(
-    page_title="Annapurna AI | Intelligent Food Rescue & Culinary Clarity",
-    page_icon="🌿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="AnnapurnaAI", page_icon="🍲", layout="wide")
 
-JWT_SECRET = "annapurna_ai_super_secret_key_2026"
+JWT_SECRET = st.secrets.get("JWT_SECRET", "annapurna_rudragrid_nist_2026_secret")
 JWT_ALGORITHM = "HS256"
 
-# Custom CSS for Organic-Tech Editorial Aesthetic & Booming Clarify Cards
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-    h1, h2, h3 {
-        font-family: 'Fraunces', serif !important;
-        color: #1A3A32;
-    }
-    .stApp {
-        background-color: #FAF7F2;
-    }
-    .clarify-card {
-        background: linear-gradient(135deg, #FFFFFF 0%, #F4EFE6 100%);
-        border: 1.5px solid #D96B27;
-        border-radius: 16px;
-        padding: 22px;
-        box-shadow: 0 10px 25px rgba(26, 58, 50, 0.08);
-        margin-bottom: 18px;
-    }
-    .jwt-token-box {
-        background-color: #142B25;
-        color: #E8F5E9;
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 12px;
-        padding: 14px;
-        border-radius: 10px;
-        word-break: break-all;
-        border-left: 4px solid #D96B27;
-    }
-    .badge-role {
-        background-color: #1A3A32;
-        color: #FAF7F2;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.5px;
-    }
-    .badge-amber {
-        background-color: #D96B27;
-        color: #FFFFFF;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    .metric-box {
-        background: #FFFFFF;
-        border-radius: 12px;
-        padding: 16px;
-        border: 1px solid #E5DFD3;
-        text-align: center;
-    }
+st.markdown("""<style>
+.stApp {background: linear-gradient(180deg, #fffbeb 0%, #f0fdf4 100%);}
+.hero {background: linear-gradient(135deg, #ea580c 0%, #f59e0b 45%, #10b981 100%); padding: 1.4rem 1.6rem; border-radius: 16px; color: #ffffff; margin-bottom: 1rem; box-shadow: 0 8px 24px rgba(234, 88, 12, 0.22);}
+.hero h1 {margin: 0; color: #ffffff; font-size: clamp(1.6rem, 4vw, 2.3rem); font-weight: 800;}
+.hero p {margin: 0.4rem 0 0 0; color: #fffbeb; font-size: clamp(0.9rem, 2.2vw, 1.05rem); font-weight: 500;}
+div[data-testid="stMetric"] {background: #ffffff; border-left: 5px solid #10b981; padding: 0.85rem 1rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);}
+div[data-testid="stMetricValue"] {font-size: 1.35rem !important; white-space: normal !important; overflow-wrap: break-word !important;}
+.stTabs [data-baseweb="tab-list"] {gap: 10px; background: #ffffff; padding: 8px; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); flex-wrap: wrap;}
+.stTabs [data-baseweb="tab"] {background-color: #f1f5f9; border-radius: 10px; padding: 10px 18px; border: 1px solid #e2e8f0;}
+.stTabs [aria-selected="true"] {background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important; border: none !important; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);}
+.stTabs [aria-selected="true"] p {color: #ffffff !important; font-weight: 700 !important;}
+.stTabs [data-baseweb="tab-highlight"] {display: none !important;}
 </style>
-""", unsafe_allow_html=True)
+<div class="hero"><h1>🍲 AnnapurnaAI</h1><p>✨ Turning Campus Food Surplus into Zero-Hunger Meals • Team RudraGrid (NIST Berhampur)</p></div>""", unsafe_allow_html=True)
 
-# ==========================================
-# 2. JWT AUTHENTICATION ENGINE
-# ==========================================
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
 
-def create_jwt_token(email: str, name: str, role: str, org: str, expiry_minutes: int = 30) -> str:
+def create_jwt(email: str, name: str, role: str, org: str, ttl_mins: int = 30) -> str:
     now = datetime.datetime.now(datetime.timezone.utc)
     payload = {
         "sub": email,
         "name": name,
         "role": role,
         "org": org,
-        "scope": ["clarify:execute", "rescue:read", "rescue:write" if role != "AI Chef / Consumer" else "chef:synthesize"],
         "iat": int(now.timestamp()),
-        "exp": int((now + datetime.timedelta(minutes=expiry_minutes)).timestamp()),
-        "iss": "annapurna-ai-auth-node"
+        "exp": int((now + datetime.timedelta(minutes=ttl_mins)).timestamp()),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def verify_jwt_token(token: str):
+def verify_jwt(token: str):
     try:
-        decoded = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return decoded, None
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM]), None
     except jwt.ExpiredSignatureError:
-        return None, "JWT Token has expired. Please refresh or sign in again."
+        return None, "JWT token expired. Please sign in again."
     except jwt.InvalidTokenError as e:
-        return None, f"Invalid JWT Signature: {str(e)}"
+        return None, f"Invalid JWT token: {e}"
 
-# ==========================================
-# 3. SESSION STATE INITIALIZATION
-# ==========================================
-if "users_db" not in st.session_state:
-    st.session_state.users_db = {
-        "chef@annapurna.ai": {
-            "name": "Aarav Sharma",
-            "password": hash_password("Annapurna123!"),
-            "role": "Donor / Restaurant",
-            "org": "Saffron Leaf Kitchens, Bengaluru"
+if "users" not in st.session_state:
+    st.session_state.users = {
+        "mess@nist.edu": {
+            "name": "NIST Mess Manager",
+            "password": hash_pw("Annapurna123!"),
+            "role": "Mess Manager",
+            "org": "NIST Hostel Mess 1"
         },
-        "ngo@annapurna.ai": {
-            "name": "Meera Nair",
-            "password": hash_password("Annapurna123!"),
-            "role": "NGO / Food Bank",
-            "org": "Roti & Hope Foundation"
+        "ngo@berhampur.org": {
+            "name": "NGO Coordinator",
+            "password": hash_pw("Annapurna123!"),
+            "role": "NGO Partner",
+            "org": "Berhampur Roti Bank"
         }
     }
 
 if "jwt_token" not in st.session_state:
     st.session_state.jwt_token = None
 
-if "surplus_feed" not in st.session_state:
-    st.session_state.surplus_feed = [
-        {
-            "id": "BATCH-901",
-            "donor": "Saffron Leaf Kitchens",
-            "items": "45x Vegetable Biryani Trays, 30x Dal Tadka",
-            "dietary": "100% Vegetarian • Nut-Free",
-            "window": "2.5 Hours (Cold-Chain Packed)",
-            "radius": "6 km (Indiranagar Hub)",
-            "clarity_score": 98,
-            "status": "Available"
-        },
-        {
-            "id": "BATCH-902",
-            "donor": "Artisan Crust Bakery",
-            "items": "60x Sourdough Loaves, 25x Multigrain Focaccia",
-            "dietary": "Vegan • Contains Gluten",
-            "window": "6.0 Hours (Ambient Sealed)",
-            "radius": "12 km (Koramangala)",
-            "clarity_score": 96,
-            "status": "Available"
-        }
-    ]
-
-# ==========================================
-# 4. AUTHENTICATION GATEWAY (LOGIN / REGISTER)
-# ==========================================
-def render_auth_screen():
-    col1, col2, col3 = st.columns([1, 2.2, 1])
-    with col2:
-        st.markdown("<h1 style='text-align:center; font-size:2.8rem;'>🌿 Annapurna AI</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#4A5D57; font-size:1.1rem;'>Zero-Waste Food Intelligence & JWT-Secured Surplus Redistribution</p>", unsafe_allow_html=True)
-        st.divider()
-
-        tab_login, tab_register = st.tabs(["🔐 JWT Sign In", "✨ Create Verified Account"])
-
-        with tab_login:
-            with st.form("login_form"):
-                email = st.text_input("Email Address", value="chef@annapurna.ai")
-                password = st.text_input("Password", type="password", value="Annapurna123!")
-                col_a, col_b = st.columns(2)
-                submitted = col_a.form_submit_button("Sign In & Issue JWT", use_container_width=True, type="primary")
-                demo_ngo = col_b.form_submit_button("⚡ 1-Click NGO Demo JWT", use_container_width=True)
-
-                if submitted:
-                    user = st.session_state.users_db.get(email)
-                    if user and user["password"] == hash_password(password):
-                        token = create_jwt_token(email, user["name"], user["role"], user["org"])
-                        st.session_state.jwt_token = token
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials. Try `chef@annapurna.ai` / `Annapurna123!`.")
-
-                if demo_ngo:
-                    ngo_user = st.session_state.users_db["ngo@annapurna.ai"]
-                    st.session_state.jwt_token = create_jwt_token(
-                        "ngo@annapurna.ai", ngo_user["name"], ngo_user["role"], ngo_user["org"]
-                    )
-                    st.rerun()
-
-        with tab_register:
-            with st.form("register_form"):
-                new_name = st.text_input("Full Name", placeholder="e.g., Priya Menon")
-                new_email = st.text_input("Work Email", placeholder="priya@greenkitchen.in")
-                new_org = st.text_input("Organization / Kitchen Name", placeholder="e.g., GreenHarvest Bistro")
-                new_role = st.selectbox("JWT Access Role Claim", [
-                    "Donor / Restaurant",
-                    "NGO / Food Bank",
-                    "AI Chef / Consumer"
-                ])
-                new_pass = st.text_input("Create Password", type="password")
-                reg_submit = st.form_submit_button("Mint Account & Generate HS256 JWT", use_container_width=True, type="primary")
-
-                if reg_submit:
-                    if new_email and new_pass and new_name:
-                        st.session_state.users_db[new_email] = {
-                            "name": new_name,
-                            "password": hash_password(new_pass),
-                            "role": new_role,
-                            "org": new_org or "Independent Node"
-                        }
-                        st.session_state.jwt_token = create_jwt_token(new_email, new_name, new_role, new_org or "Independent Node")
-                        st.success("Account created! Issuing signed JWT...")
-                        time.sleep(0.6)
-                        st.rerun()
-                    else:
-                        st.warning("Please fill in Name, Email, and Password.")
-
-# ==========================================
-# 5. MAIN APPLICATION (PROTECTED BY JWT)
-# ==========================================
 if not st.session_state.jwt_token:
-    render_auth_screen()
+    _, col_auth, _ = st.columns([1, 1.5, 1])
+    with col_auth:
+        st.subheader("🔐 JWT Login")
+        with st.form("jwt_login"):
+            email = st.text_input("Email", value="mess@nist.edu")
+            password = st.text_input("Password", type="password", value="Annapurna123!")
+            c1, c2 = st.columns(2)
+            if c1.form_submit_button("Login with JWT", type="primary", use_container_width=True):
+                u = st.session_state.users.get(email.strip().lower())
+                if u and u["password"] == hash_pw(password):
+                    st.session_state.jwt_token = create_jwt(email.strip().lower(), u["name"], u["role"], u["org"])
+                    st.rerun()
+                else:
+                    st.error("Invalid email or password.")
+            if c2.form_submit_button("Quick Demo JWT", use_container_width=True):
+                u = st.session_state.users["mess@nist.edu"]
+                st.session_state.jwt_token = create_jwt("mess@nist.edu", u["name"], u["role"], u["org"])
+                st.rerun()
     st.stop()
 
-decoded_jwt, auth_error = verify_jwt_token(st.session_state.jwt_token)
-if auth_error:
-    st.error(f"🔒 Authentication Interrupted: {auth_error}")
+user_claims, auth_err = verify_jwt(st.session_state.jwt_token)
+if auth_err:
+    st.error(auth_err)
     st.session_state.jwt_token = None
-    if st.button("Return to Login"):
+    if st.button("Back to Login"):
         st.rerun()
     st.stop()
 
-# ==========================================
-# 6. SIDEBAR: LIVE JWT TOKEN INSPECTOR & ROLE SWITCHER
-# ==========================================
+if "donations" not in st.session_state:
+    st.session_state.donations = list((
+        {"dish": "Steamed Rice & Dal Tadka", "portions": 35, "shelf_life": "3 Hours", "location": "NIST Hostel Mess 1 (1.2 km)", "status": "Available", "otp": "4821"},
+        {"dish": "Veg Pulao & Paneer Masala", "portions": 22, "shelf_life": "2.5 Hours", "location": "NIST Central Cafeteria (0.8 km)", "status": "Available", "otp": "7390"}
+    ))
+if "rescued" not in st.session_state:
+    st.session_state.rescued = 1240
+
+def claim_item(idx):
+    st.session_state.donations[idx]["status"] = "Claimed"
+    st.session_state.rescued += int(st.session_state.donations[idx].get("portions", 0))
+
+def add_donation(dish, port, life, loc):
+    st.success(f"✅ **Detected:** {dish} — Broadcasted to NGOs!")
+    r1, r2 = st.columns(2)
+    r1.metric("Estimated Portions", f"{port} Meals")
+    r2.metric("Safe Freshness", life)
+    st.session_state.donations.insert(0, {"dish": dish, "portions": port, "shelf_life": life, "location": loc, "status": "Available", "otp": str(random.randint(1000, 9999))})
+
+def scan_food(img, filename):
+    try:
+        key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        if key:
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            prompt = "Identify all food items present in the image, predict how many meal plates can be prepared from them (integer portions), and give safe shelf life like 3 Hours. Return JSON with keys: items_present (list of strings), dish (string summary), portions (integer), shelf_life (string)"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+            body = {"contents": list(({"parts": list(({"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": b64}}))},)), "generationConfig": {"response_mime_type": "application/json"}}
+            r = requests.post(url, json=body, timeout=15)
+            if r.status_code == 200:
+                m = re.search(r'\{.*\}', json.dumps(r.json()), re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    if "dish" in parsed:
+                        return parsed
+    except Exception:
+        pass
+    clean = re.sub(r"[^a-zA-Z ]", " ", filename.rsplit(".", 1)[0]).strip().title()
+    dish = clean if (len(clean) > 3 and not clean.isdigit() and not clean.startswith("Img")) else "Freshly Prepared Campus Meal"
+    return {"items_present": [dish], "dish": dish, "portions": 24, "shelf_life": "3 Hours"}
+
+def render_tab1():
+    col1, col2 = st.columns(2)
+    with col1:
+        day = st.selectbox("Campus Schedule", list(("Regular Day", "Weekend / Sunday", "College Fest (Sankalp)", "Exam Week")))
+        students = st.slider("Registered Hostel Students", 100, 1500, 450, 25)
+        rates = {"Regular Day": 0.90, "Weekend / Sunday": 0.76, "College Fest (Sankalp)": 0.62, "Exam Week": 0.68}
+        pred = int(students * rates.get(day, 0.9))
+        saved = students - pred
+        st.success(f"🎯 Cook **{pred} plates** (Saves **{saved} plates** today)")
+        st.info(f"🍚 **Rice:** {round(pred * 0.18, 1)} kg  |  🍲 **Dal/Curry:** {round(pred * 0.22, 1)} L")
+        st.warning(f"💰 **Est. Monthly Campus Savings:** ₹{saved * 45 * 30:,} • 💧 **Water Saved:** {saved * 120 * 30:,} L")
+    with col2:
+        st.markdown("#### 📉 Overproduction Cut Comparison")
+        df = pd.DataFrame({"Method": list(("Guesswork", "AnnapurnaAI")), "Plates": list((students, pred))}).set_index("Method")
+        st.bar_chart(df, color="#f59e0b", height=250)
+
+def render_tab2():
+    food_items_qty = st.text_input("Food Items & Quantity (e.g., Rice 10 kg, Dal 5 L, Paneer 3 kg)", placeholder="Enter Rice, Dal, etc. food items names and quantity")
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        up = st.file_uploader("Upload or Capture Food Tray Photo", type=list(("jpg", "jpeg", "png", "webp")))
+        img = None
+        if up:
+            img = Image.open(up).convert("RGB")
+            img.thumbnail(tuple((800, 800)))
+            st.image(img, use_container_width=True)
+            with st.spinner("Scanning photo with AI..."):
+                scan_res = scan_food(img, up.name)
+            items_list = scan_res.get("items_present") or [scan_res.get("dish", "Food Item")]
+            st.info(f"🧾 **Items Present:** {', '.join(str(x) for x in items_list)}")
+            st.success(f"🍽️ **Estimated Preparable Plates:** {int(scan_res.get('portions', 24))} Plates")
+        else:
+            st.caption("📱 On mobile, tap Browse files to use your camera directly—or use the 1-click demo on the right!")
+    with sc2:
+        st.markdown("#### 🛡️ Food Safety & Broadcast")
+        ok1 = st.checkbox("Cooked within last 2 hours", value=True)
+        ok2 = st.checkbox("Stored in clean, covered trays", value=True)
+        loc = st.selectbox("Kitchen Location", list(("NIST Central Cafeteria (0.5 km)", "NIST Hostel Mess 1 (1.2 km)")))
+        if img is not None and st.button("🔍 Scan Tray & Alert NGOs", type="primary", use_container_width=True):
+            if not (ok1 and ok2):
+                st.error("⚠️ Please verify both food safety checks.")
+            else:
+                with st.spinner("Scanning tray with Gemini Vision AI..."):
+                    res = scan_food(img, up.name)
+                    dish_label = str(res.get("dish", "Cooked Meal"))
+                    if food_items_qty.strip():
+                        dish_label = f"{dish_label} ({food_items_qty.strip()})"
+                    add_donation(dish_label, int(res.get("portions", 20)), str(res.get("shelf_life", "3 Hours")), loc)
+        if st.button("⚡ 1-Click Sample Campus Tray Demo", use_container_width=True):
+            if not (ok1 and ok2):
+                st.error("⚠️ Please verify both food safety checks.")
+            else:
+                demo_dish = f"Veg Biryani & Dal Tadka ({food_items_qty.strip()})" if food_items_qty.strip() else "Veg Biryani & Dal Tadka"
+                add_donation(demo_dish, 28, "3 Hours", loc)
+
+def render_tab3():
+    mc, fc = st.columns(list((1, 1.4)))
+    with mc:
+        st.map(pd.DataFrame({"lat": list((19.1982, 19.2055, 19.2140)), "lon": list((84.7458, 84.7580, 84.7720))}), zoom=12)
+        st.caption("📍 NIST Campus & Partner NGOs in Berhampur (< 5 km)")
+    with fc:
+        for i, it in enumerate(st.session_state.donations):
+            with st.container(border=True):
+                a, b = st.columns(list((2.5, 1)))
+                a.markdown(f"### 🍛 {it.get('dish')} ({it.get('portions')} Portions)")
+                a.write(f"📍 {it.get('location')} | ⏳ {it.get('shelf_life')}")
+                if it.get("status") == "Available":
+                    b.button("🚚 Claim", key=f"c_{i}", on_click=claim_item, args=(i,), use_container_width=True)
+                else:
+                    b.success("✅ Claimed")
+                    b.info(f"OTP: {it.get('otp')}")
+
 with st.sidebar:
-    st.markdown("### 🛡️ JWT Security Session")
-    st.markdown(f"**{decoded_jwt['name']}**")
-    st.caption(f"{decoded_jwt['org']}")
-    st.markdown(f"<span class='badge-role'>{decoded_jwt['role']}</span>", unsafe_allow_html=True)
-
-    # Calculate remaining token TTL
-    now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    ttl_seconds = max(0, decoded_jwt["exp"] - now_ts)
-    mins, secs = divmod(ttl_seconds, 60)
-    st.info(f"⏱️ Token TTL Remaining: **{mins}m {secs}s**")
-
-    with st.expander("🔍 Live JWT Inspector (HS256)", expanded=True):
-        parts = st.session_state.jwt_token.split(".")
-        st.markdown("**Encoded Bearer Token:**")
-        st.markdown(
-            f"<div class='jwt-token-box'>"
-            f"<span style='color:#FF8A65'>{parts[0]}</span>."
-            f"<span style='color:#81C784'>{parts[1]}</span>."
-            f"<span style='color:#64B5F6'>{parts[2]}</span>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-        st.markdown("**Decoded Claims Payload:**")
-        st.json(decoded_jwt)
-
-    st.divider()
-    st.markdown("**⚡ Dynamic Role Claim Switcher**")
-    switched_role = st.selectbox(
-        "Re-sign JWT with Role:",
-        ["Donor / Restaurant", "NGO / Food Bank", "AI Chef / Consumer"],
-        index=["Donor / Restaurant", "NGO / Food Bank", "AI Chef / Consumer"].index(decoded_jwt["role"])
-    )
-    col_r1, col_r2 = st.columns(2)
-    if col_r1.button("🔄 Refresh JWT", use_container_width=True):
-        st.session_state.jwt_token = create_jwt_token(
-            decoded_jwt["sub"], decoded_jwt["name"], switched_role, decoded_jwt["org"]
-        )
-        st.rerun()
-
-    if col_r2.button("🚪 Sign Out", use_container_width=True):
+    st.markdown(f"### 🔐 {user_claims['name']}")
+    st.caption(f"{user_claims['role']} • {user_claims['org']}")
+    if st.button("Logout", use_container_width=True):
         st.session_state.jwt_token = None
         st.rerun()
+    st.divider()
+    st.header("🌟 Live Hub Status")
+    st.success("✅ Vision AI Engine Active")
+    st.warning("📡 Dispatch Radius: 5.0 km • Berhampur")
+    st.markdown("### 🏥 Partner NGOs\n* **Berhampur Roti Bank**\n* **Asha Kiran Trust**\n* **Ganjam Seva Foundation**")
 
-# ==========================================
-# 7. HEADER & IMPACT TELEMETRY
-# ==========================================
-st.markdown("<h1>🌿 Annapurna AI — Intelligent Food Rescue & Clarity Engine</h1>", unsafe_allow_html=True)
-st.caption(f"Authenticated Node: `{decoded_jwt['sub']}` • Scope: `{', '.join(decoded_jwt['scope'])}`")
+kg = round(st.session_state.rescued * 0.35, 1)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("🍽️ Meals Rescued", f"{st.session_state.rescued:,}", "+22 today")
+c2.metric("⚖️ Waste Prevented", f"{kg} kg", "Zero landfill")
+c3.metric("🌍 CO₂ Saved", f"{round(kg * 2.5, 1)} kg", "-18% footprint")
+c4.metric("🚚 Avg. Pickup", "24 Mins", "Safe window")
+st.divider()
 
-m1, m2, m3, m4 = st.columns(4)
-m1.markdown("<div class='metric-box'><h3>14,820</h3><p>Meals Rescued</p></div>", unsafe_allow_html=True)
-m2.markdown("<div class='metric-box'><h3>6.4 Tons</h3><p>CO₂ Emissions Prevented</p></div>", unsafe_allow_html=True)
-m3.markdown("<div class='metric-box'><h3>98.4%</h3><p>Clarify™ Match Accuracy</p></div>", unsafe_allow_html=True)
-m4.markdown("<div class='metric-box'><h3>18 mins</h3><p>Avg Dispatch Latency</p></div>", unsafe_allow_html=True)
-
-st.write("")
-
-# ==========================================
-# 8. NAVIGATION TABS
-# ==========================================
-tab_clarify, tab_hub, tab_chef = st.tabs([
-    "✨ Annapurna Clarify™ Engine (Booming Mode)",
-    "🚚 Live Surplus Redistribution Hub",
-    "🍲 Zero-Waste AI Chef Synthesizer"
-])
-
-# ------------------------------------------
-# TAB 1: BOOMING CLARIFICATION ENGINE
-# ------------------------------------------
-with tab_clarify:
-    st.subheader("Turn Ambiguous Kitchen Notes into High-Precision Rescue Payloads")
-    st.write("Enter rough leftover or pantry notes below. **Annapurna Clarify™** detects missing safety, allergen, and logistics signals and boosts clarity to **99%**.")
-
-    raw_input = st.text_area(
-        "Raw Kitchen / Pantry Note:",
-        value="We have around 40 boxes of paneer curry and rice left from a corporate lunch event. Need pickup tonight.",
-        height=90
-    )
-
-    # Ambiguity Detection Heuristic
-    blind_spots = []
-    if not any(w in raw_input.lower() for w in ["fridge", "chilled", "hot", "temp", "hour", "time"]):
-        blind_spots.append("Missing Thermal & Safe-Consumption Window")
-    if not any(w in raw_input.lower() for w in ["nut", "vegan", "jain", "allergen", "gluten", "dairy"]):
-        blind_spots.append("Unspecified Allergen & Dietary Tags")
-    if not any(w in raw_input.lower() for w in ["km", "radius", "address", "hub", "delivery"]):
-        blind_spots.append("Missing Pickup Radius / Cold-Chain Logistics")
-
-    base_score = max(34, 100 - (len(blind_spots) * 21))
-
-    st.markdown("<div class='clarify-card'>", unsafe_allow_html=True)
-    st.markdown("#### ⚡ Interactive Clarification Matrix")
-    if blind_spots:
-        st.warning(f"**{len(blind_spots)} Critical Ambiguities Detected:** " + " • ".join(blind_spots))
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        thermal_state = st.pills(
-            "1. Thermal & Shelf State",
-            ["Hot-Held (>60°C)", "Blast-Chilled (<4°C)", "Ambient Sealed"],
-            default="Blast-Chilled (<4°C)"
-        )
-        safe_hours = st.slider("Safe Window (Hours)", 1.0, 12.0, 4.0, 0.5)
-
-    with c2:
-        dietary_tags = st.multiselect(
-            "2. Dietary & Allergen Verification",
-            ["100% Vegetarian", "Contains Dairy", "Nut-Free", "Gluten-Free", "Jain Friendly", "Vegan"],
-            default=["100% Vegetarian", "Contains Dairy", "Nut-Free"]
-        )
-
-    with c3:
-        pickup_radius = st.select_slider(
-            "3. Dispatch Radius",
-            options=["2 km", "5 km", "10 km", "15 km", "25 km"],
-            value="10 km"
-        )
-        packaging = st.pills(
-            "Packaging Format",
-            ["Foil Trays", "Biodegradable Boxes", "Bulk Cambros"],
-            default="Biodegradable Boxes"
-        )
-
-    # Calculate Boosted Clarity Score
-    boost = 0
-    if thermal_state: boost += 22
-    if dietary_tags: boost += 22
-    if pickup_radius and packaging: boost += 21
-    final_clarity = min(99, base_score + boost)
-
-    st.markdown(f"**Clarity Confidence Score: `{base_score}%` ➔ `{final_clarity}%` (+{final_clarity - base_score}% Booming Boost)**")
-    st.progress(final_clarity / 100)
-
-    # Synthesized Structured Output
-    clarified_summary = {
-        "batch_origin": decoded_jwt["org"],
-        "authorized_by": decoded_jwt["sub"],
-        "role_claim": decoded_jwt["role"],
-        "raw_description": raw_input,
-        "thermal_protocol": f"{thermal_state} ({safe_hours}h window)",
-        "verified_dietary": dietary_tags,
-        "logistics": f"{packaging} • Within {pickup_radius}",
-        "clarity_confidence": f"{final_clarity}%"
-    }
-
-    with st.expander("📄 View Clarified Structured JSON Payload", expanded=False):
-        st.json(clarified_summary)
-
-    if st.button("🚀 Broadcast Clarified Batch to Rescue Network", type="primary", use_container_width=True):
-        new_batch = {
-            "id": f"BATCH-{903 + len(st.session_state.surplus_feed)}",
-            "donor": decoded_jwt["org"],
-            "items": raw_input[:65] + ("..." if len(raw_input) > 65 else ""),
-            "dietary": " • ".join(dietary_tags) if dietary_tags else "Standard",
-            "window": f"{safe_hours} Hours ({thermal_state})",
-            "radius": f"{pickup_radius} ({packaging})",
-            "clarity_score": final_clarity,
-            "status": "Available"
-        }
-        st.session_state.surplus_feed.insert(0, new_batch)
-        st.success(f"✅ Batch **{new_batch['id']}** signed with JWT & published at **{final_clarity}% clarity**!")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ------------------------------------------
-# TAB 2: LIVE SURPLUS REDISTRIBUTION HUB
-# ------------------------------------------
-with tab_hub:
-    st.subheader("Live JWT-Verified Surplus Batches")
-    for idx, batch in enumerate(st.session_state.surplus_feed):
-        with st.container(border=True):
-            col_info, col_meta, col_action = st.columns([2.5, 2, 1.2])
-            with col_info:
-                st.markdown(f"#### {batch['id']} — {batch['donor']}")
-                st.write(batch["items"])
-                st.caption(f"🥗 {batch['dietary']}")
-            with col_meta:
-                st.markdown(f"⏱️ **{batch['window']}**")
-                st.markdown(f"📍 **{batch['radius']}**")
-                st.markdown(f"<span class='badge-amber'>Clarity: {batch['clarity_score']}%</span>", unsafe_allow_html=True)
-            with col_action:
-                st.write("")
-                if batch["status"] == "Available":
-                    if st.button(f"Claim Batch", key=f"claim_{batch['id']}", use_container_width=True, type="primary"):
-                        st.session_state.surplus_feed[idx]["status"] = f"Claimed by {decoded_jwt['org']}"
-                        st.rerun()
-                else:
-                    st.success(batch["status"])
-
-# ------------------------------------------
-# TAB 3: ZERO-WASTE AI CHEF SYNTHESIZER
-# ------------------------------------------
-with tab_chef:
-    st.subheader("Zero-Waste Culinary Synthesis")
-    st.write("Transform near-expiry produce and surplus staples into high-nutrition community meals.")
-    ingredients = st.text_input(
-        "Enter available surplus ingredients:",
-        value="Overripe tomatoes, leftover cooked rice, spinach, paneer cubes, ginger"
-    )
-    cuisine_style = st.selectbox("Target Culinary Profile:", ["North Indian Comfort", "South Indian Tiffin", "Continental One-Pot"])
-
-    if st.button("✨ Generate Clarified Zero-Waste Recipe", type="primary"):
-        st.markdown(f"""
-        ### 🍲 Roasted Tomato & Spinach Paneer Khichdi Bowl ({cuisine_style})
-        - **Zero-Waste Yield:** Converts 100% of softened tomatoes into a rich roasted base; rehydrates day-old rice safely at >75°C.
-        - **Prep & Thermal Protocol:** 22 minutes • High-heat tempering to ensure microbial safety.
-        - **Nutritional Density:** 24g Protein • Rich in Iron & Lycopene • **0g Kitchen Scrap**.
-        """)
+t1, t2, t3 = st.tabs(list(("📊 1. Kitchen Prep Advisor", "📸 2. Vision AI Scanner", "🤝 3. NGO Dispatch & Map")))
+with t1:
+    render_tab1()
+with t2:
+    render_tab2()
+with t3:
+    render_tab3()
